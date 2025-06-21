@@ -3,19 +3,32 @@ import pathlib
 import hashlib
 import datetime
 import re
-from typing import List
+import subprocess
+from typing import List, Optional
 
 app = typer.Typer()
 
 WHITELIST = {'.md', '.py', '.c', '.h', '.cpp'}
 REPO2MD_RE = re.compile(r'repo2md-\d{14}-[0-9a-f]{12}\.md', re.IGNORECASE)
 
+def get_git_commit(root: pathlib.Path) -> Optional[str]:
+    """Return current commit hash if root is a git repo, else None."""
+    git_dir = root / ".git"
+    if not git_dir.is_dir():
+        return None
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=root,
+            capture_output=True,
+            check=True,
+            text=True
+        )
+        return result.stdout.strip()
+    except Exception:
+        return None
+
 def collect_files(root: pathlib.Path) -> List[pathlib.Path]:
-    """
-    Collect all files with whitelisted extensions, recursively from root.
-    README.md is placed first if present. Empty files are skipped.
-    Files matching the repo2md-*.md pattern are ignored.
-    """
     files = []
     for path in sorted(root.rglob('*')):
         if not path.is_file():
@@ -43,7 +56,6 @@ def collect_files(root: pathlib.Path) -> List[pathlib.Path]:
     return files
 
 def toc(files: List[pathlib.Path]) -> str:
-    """Generate Markdown Table of Contents, tightly packed."""
     lines = ["## TOC"]
     for f in files:
         anchor = f.as_posix().replace('/', '').replace('.', '').replace(' ', '-').lower()
@@ -51,32 +63,34 @@ def toc(files: List[pathlib.Path]) -> str:
     return '\n'.join(lines) + '\n\n'
 
 def heading(rel_path: pathlib.Path) -> str:
-    """Markdown h2 heading for file."""
     return f"## {rel_path.as_posix()}\n"
 
 def tab_block(text: str) -> str:
-    """Tab-indent every line."""
     return ''.join('\t' + line + '\n' for line in text.splitlines())
 
 @app.command()
 def repo2md(repo_path: str):
     """
     Traverse repo and dump whitelisted files as a single Markdown document,
-    bounded by '---', with H1 repo heading, H2 for all sections,
-    TOC, and tab-indented file blocks. Empty files and previous repo2md
-    output files are skipped.
+    bounded by '--', with standard header, TOC, and tab-indented file blocks.
+    Empty files and previous repo2md output files are skipped.
     """
     root = pathlib.Path(repo_path).resolve()
     repo_name = root.name
+    git_commit = get_git_commit(root)
     files = collect_files(root)
     if not files:
         typer.echo("No files to include.")
         raise typer.Exit(1)
     doc = [
         "--\n\n",
-        f"# Repository Dump: {repo_name}\n\n",
-        toc(files)
+        "# Repository Dump\n",
+        f"- Folder: `{repo_name}`\n"
     ]
+    if git_commit:
+        doc.append(f"- Git commit: `{git_commit}`\n")
+    doc.append('\n')
+    doc.append(toc(files))
     for f in files:
         absf = root / f
         try:
