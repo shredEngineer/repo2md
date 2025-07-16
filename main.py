@@ -31,6 +31,8 @@ def get_git_commit(root: pathlib.Path) -> Optional[str]:
 def collect_files(root: pathlib.Path) -> List[pathlib.Path]:
     files = []
     for path in sorted(root.rglob('*')):
+        if any(part.startswith('.') for part in path.parts):
+            continue
         if not path.is_file():
             continue
         name = path.name
