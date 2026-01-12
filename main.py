@@ -9,6 +9,7 @@ from typing import List, Optional
 app = typer.Typer()
 
 WHITELIST = {'.md', '.py', '.c', '.h', '.cpp'}
+DOC_WHITELIST = {'.md', '.txt'}
 REPO2MD_RE = re.compile(r'repo2md-\d{14}-[0-9a-f]{12}\.md', re.IGNORECASE)
 
 def get_git_commit(root: pathlib.Path) -> Optional[str]:
@@ -28,8 +29,9 @@ def get_git_commit(root: pathlib.Path) -> Optional[str]:
     except Exception:
         return None
 
-def collect_files(root: pathlib.Path) -> List[pathlib.Path]:
+def collect_files(root: pathlib.Path, *, docs_only: bool = False) -> List[pathlib.Path]:
     files = []
+    allowed_exts = DOC_WHITELIST if docs_only else WHITELIST
     for path in sorted(root.rglob('*')):
         if any(part.startswith('.') for part in path.parts):
             continue
@@ -37,7 +39,7 @@ def collect_files(root: pathlib.Path) -> List[pathlib.Path]:
             continue
         name = path.name
         ext = path.suffix.lower()
-        if ext not in WHITELIST:
+        if ext not in allowed_exts:
             continue
         if REPO2MD_RE.fullmatch(name):
             continue
@@ -71,7 +73,7 @@ def tab_block(text: str) -> str:
     return ''.join('\t' + line + '\n' for line in text.splitlines())
 
 @app.command()
-def repo2md(repo_path: str):
+def repo2md(repo_path: str, only_docs: bool = typer.Option(False, "--only-docs", help="Include only .md and .txt files.")):
     """
     Traverse repo and dump whitelisted files as a single Markdown document,
     bounded by '--', with standard header, TOC, and tab-indented file blocks.
@@ -80,7 +82,7 @@ def repo2md(repo_path: str):
     root = pathlib.Path(repo_path).resolve()
     repo_name = root.name
     git_commit = get_git_commit(root)
-    files = collect_files(root)
+    files = collect_files(root, docs_only=only_docs)
     if not files:
         typer.echo("No files to include.")
         raise typer.Exit(1)
